@@ -45,6 +45,7 @@ public class Service {
         ParseException lastException = null;
         for (SimpleDateFormat dateFormat : DATE_FORMATS) {
             try {
+                dateFormat.setLenient(false);
                 return new Date(dateFormat.parse(dateStr).getTime());
             } catch (ParseException e) {
                 lastException = e;
