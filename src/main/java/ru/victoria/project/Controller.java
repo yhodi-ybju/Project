@@ -8,11 +8,26 @@ import org.springframework.web.bind.annotation.RestController;
 public class Controller {
 
     @Autowired
-    private Service service;
+    private DataLoadService dataLoadService;
+
+    @Autowired
+    private CsvService csvService;
 
     @GetMapping("/load-data")
     public String load() {
-        service.loadData();
+        dataLoadService.loadData();
         return "Process finished";
+    }
+
+    @GetMapping("/export")
+    public String export() {
+        csvService.exportDataToCsv("dm_f101_round_f.csv");
+        return "Export finished";
+    }
+
+    @GetMapping("/import")
+    public String importData() {
+        csvService.importDataFromCsv("dm_f101_round_f.csv");
+        return "Import finished";
     }
 }
