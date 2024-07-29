@@ -1,43 +1,51 @@
-CREATE OR REPLACE PROCEDURE ds.fill_account_balance_f(i_OnDate DATE)
-    LANGUAGE plpgsql
+CREATE OR REPLACE PROCEDURE DM.FILL_ACCOUNT_BALANCE_F(I_ONDATE DATE)
 AS $$
-DECLARE
-    prev_date DATE;
 BEGIN
-    prev_date := i_OnDate - INTERVAL '1 day';
-    DELETE FROM DM.DM_ACCOUNT_BALANCE_F WHERE on_date = i_OnDate;
-    INSERT INTO DM.DM_ACCOUNT_BALANCE_F (on_date, account_rk, balance_out, balance_out_rub)
+    DELETE FROM DM.DM_ACCOUNT_BALANCE_F WHERE ON_DATE = I_ONDATE;
+    WITH TURNOVER_ON_DATE AS (
+        SELECT
+            ATF.ACCOUNT_RK,
+            ATF.CREDIT_AMOUNT,
+            ATF.CREDIT_AMOUNT_RUB,
+            ATF.DEBET_AMOUNT,
+            ATF.DEBET_AMOUNT_RUB
+        FROM DM.DM_ACCOUNT_TURNOVER_F ATF
+        WHERE ON_DATE = I_ONDATE
+    )
+    INSERT INTO DM.DM_ACCOUNT_BALANCE_F(
+        ON_DATE,
+        ACCOUNT_RK,
+        BALANCE_OUT,
+        BALANCE_OUT_RUB
+    )
     SELECT
-        i_OnDate,
-        acc.account_rk,
+        I_ONDATE,
+        ACC.ACCOUNT_RK,
         CASE
-            WHEN acc.char_type = 'А' THEN COALESCE(prev_bal.balance_out, 0) + COALESCE(turn.debet_amount, 0) - COALESCE(turn.credit_amount, 0)
-            WHEN acc.char_type = 'П' THEN COALESCE(prev_bal.balance_out, 0) - COALESCE(turn.debet_amount, 0) + COALESCE(turn.credit_amount, 0)
-            END AS balance_out,
+            WHEN ACC.CHAR_TYPE = 'А' THEN COALESCE(PREV_BAL.BALANCE_OUT, 0) + COALESCE(TAD.DEBET_AMOUNT, 0) - COALESCE(TAD.CREDIT_AMOUNT, 0)
+            WHEN ACC.CHAR_TYPE = 'П' THEN COALESCE(PREV_BAL.BALANCE_OUT, 0) - COALESCE(TAD.DEBET_AMOUNT, 0) + COALESCE(TAD.CREDIT_AMOUNT, 0)
+            END AS BALANCE_OUT,
         CASE
-            WHEN acc.char_type = 'А' THEN COALESCE(prev_bal.balance_out_rub, 0) + COALESCE(turn.debet_amount_rub, 0) - COALESCE(turn.credit_amount_rub, 0)
-            WHEN acc.char_type = 'П' THEN COALESCE(prev_bal.balance_out_rub, 0) - COALESCE(turn.debet_amount_rub, 0) + COALESCE(turn.credit_amount_rub, 0)
-            END AS balance_out_rub
-    FROM
-        DS.MD_ACCOUNT_D acc
-            LEFT JOIN
-        DM.DM_ACCOUNT_BALANCE_F prev_bal
-        ON
-            acc.account_rk = prev_bal.account_rk AND prev_bal.on_date = prev_date
-            LEFT JOIN
-        DM.DM_ACCOUNT_TURNOVER_F turn
-        ON
-            acc.account_rk = turn.account_rk AND turn.on_date = i_OnDate
-    WHERE
-        i_OnDate BETWEEN acc.data_actual_date AND acc.data_actual_end_date;
-
+            WHEN ACC.CHAR_TYPE = 'А' THEN COALESCE(PREV_BAL.BALANCE_OUT_RUB, 0) + COALESCE(TAD.DEBET_AMOUNT_RUB, 0) - COALESCE(TAD.CREDIT_AMOUNT_RUB, 0)
+            WHEN ACC.CHAR_TYPE = 'П' THEN COALESCE(PREV_BAL.BALANCE_OUT_RUB, 0) - COALESCE(TAD.DEBET_AMOUNT_RUB, 0) + COALESCE(TAD.CREDIT_AMOUNT_RUB, 0)
+            END AS BALANCE_OUT_RUB
+    FROM DS.MD_ACCOUNT_D ACC
+             LEFT JOIN TURNOVER_ON_DATE TAD ON ACC.ACCOUNT_RK = TAD.ACCOUNT_RK
+             LEFT JOIN (
+        SELECT
+            DABF.ACCOUNT_RK,
+            DABF.BALANCE_OUT,
+            DABF.BALANCE_OUT_RUB
+        FROM DM.DM_ACCOUNT_BALANCE_F DABF
+        WHERE DABF.ON_DATE = I_ONDATE - INTERVAL '1 DAY'
+    ) PREV_BAL ON ACC.ACCOUNT_RK = PREV_BAL.ACCOUNT_RK
+    WHERE I_ONDATE BETWEEN ACC.DATA_ACTUAL_DATE AND ACC.DATA_ACTUAL_END_DATE;
     INSERT INTO LOGS.LOAD_LOG (PROCESS_NAME, START_TIME, END_TIME, STATUS, COMMENT)
-    VALUES ('fill_account_balance_f', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'SUCCESS', 'Balance calculated successfully for ' || i_OnDate);
-
+    VALUES ('dm.fill_account_balance_f', NOW(), NOW(), 'SUCCESS', 'Balance calculation for ' || I_ONDATE || ' completed.');
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO LOGS.LOAD_LOG (PROCESS_NAME, START_TIME, END_TIME, STATUS, COMMENT)
-        VALUES ('fill_account_balance_f', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'FAILURE', SQLERRM);
+        VALUES ('dm.fill_account_balance_f', NOW(), NOW(), 'FAILED', 'Error: ' || SQLERRM);
         RAISE;
 END;
-$$;
+$$ LANGUAGE PLPGSQL;

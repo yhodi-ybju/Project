@@ -1,48 +1,59 @@
-CREATE OR REPLACE PROCEDURE ds.fill_account_turnover_f(i_OnDate DATE)
-    LANGUAGE plpgsql
+CREATE OR REPLACE PROCEDURE DM.FILL_ACCOUNT_TURNOVER_F(I_ONDATE DATE)
 AS $$
 BEGIN
-    DELETE FROM DM.DM_ACCOUNT_TURNOVER_F WHERE on_date = i_OnDate;
-    INSERT INTO DM.DM_ACCOUNT_TURNOVER_F (on_date, account_rk, credit_amount, credit_amount_rub)
+    DELETE FROM DM.DM_ACCOUNT_TURNOVER_F WHERE ON_DATE = I_ONDATE;
+    WITH CREDIT_SUM AS (
+        SELECT CREDIT_ACCOUNT_RK, SUM(CREDIT_AMOUNT) AS CREDIT_AMOUNT
+        FROM DS.FT_POSTING_F
+        WHERE OPER_DATE = I_ONDATE
+        GROUP BY CREDIT_ACCOUNT_RK
+    ),
+         DEBET_SUM AS (
+             SELECT DEBET_ACCOUNT_RK, SUM(DEBET_AMOUNT) AS DEBET_AMOUNT
+             FROM DS.FT_POSTING_F
+             WHERE OPER_DATE = I_ONDATE
+             GROUP BY DEBET_ACCOUNT_RK
+         ),
+         ACCOUNTS AS (
+             SELECT CREDIT_ACCOUNT_RK AS ACCOUNT_RK
+             FROM CREDIT_SUM
+             UNION
+             SELECT DEBET_ACCOUNT_RK AS ACCOUNT_RK
+             FROM DEBET_SUM
+         )
+    INSERT INTO DM.DM_ACCOUNT_TURNOVER_F (
+        ON_DATE,
+        ACCOUNT_RK,
+        CREDIT_AMOUNT,
+        CREDIT_AMOUNT_RUB,
+        DEBET_AMOUNT,
+        DEBET_AMOUNT_RUB
+    )
     SELECT
-        i_OnDate,
-        credit_account_rk,
-        SUM(credit_amount),
-        SUM(credit_amount * COALESCE(er.reduced_cource, 1))
+        I_ONDATE AS ON_DATE,
+        ACC.ACCOUNT_RK,
+        COALESCE(CS.CREDIT_AMOUNT, 0) AS CREDIT_AMOUNT,
+        COALESCE(CS.CREDIT_AMOUNT, 0) * COALESCE(MERD.REDUCED_COURCE, 1) AS CREDIT_AMOUNT_RUB,
+        COALESCE(DS.DEBET_AMOUNT, 0) AS DEBET_AMOUNT,
+        COALESCE(DS.DEBET_AMOUNT, 0) * COALESCE(MERD.REDUCED_COURCE, 1) AS DEBET_AMOUNT_RUB
     FROM
-        DS.FT_POSTING_F pf
-            LEFT JOIN
-        DS.MD_EXCHANGE_RATE_D er
-        ON
-            pf.oper_date = er.data_actual_date
-    WHERE
-        pf.oper_date = i_OnDate
-    GROUP BY
-        credit_account_rk;
+        ACCOUNTS ACC
+            LEFT JOIN CREDIT_SUM CS ON ACC.ACCOUNT_RK = CS.CREDIT_ACCOUNT_RK
+            LEFT JOIN DEBET_SUM DS ON ACC.ACCOUNT_RK = DS.DEBET_ACCOUNT_RK
+            LEFT JOIN DS.MD_EXCHANGE_RATE_D MERD
+                      ON MERD.CURRENCY_RK = (
+                          SELECT CURRENCY_RK
+                          FROM DS.FT_BALANCE_F BF
+                          WHERE ACC.ACCOUNT_RK = BF.ACCOUNT_RK
+                      )
+                          AND I_ONDATE BETWEEN MERD.DATA_ACTUAL_DATE AND MERD.DATA_ACTUAL_END_DATE;
 
-    INSERT INTO DM.DM_ACCOUNT_TURNOVER_F (on_date, account_rk, debet_amount, debet_amount_rub)
-    SELECT
-        i_OnDate,
-        debet_account_rk,
-        SUM(debet_amount),
-        SUM(debet_amount * COALESCE(er.reduced_cource, 1))
-    FROM
-        DS.FT_POSTING_F pf
-            LEFT JOIN
-        DS.MD_EXCHANGE_RATE_D er
-        ON
-            pf.oper_date = er.data_actual_date
-    WHERE
-        pf.oper_date = i_OnDate
-    GROUP BY
-        debet_account_rk;
     INSERT INTO LOGS.LOAD_LOG (PROCESS_NAME, START_TIME, END_TIME, STATUS, COMMENT)
-    VALUES ('fill_account_turnover_f', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'SUCCESS', 'Turnover calculated successfully for ' || i_OnDate);
-
+    VALUES ('dm.fill_account_turnover_f', NOW(), NOW(), 'SUCCESS', 'Turnover calculation for ' || I_ONDATE || ' completed.');
 EXCEPTION
     WHEN OTHERS THEN
         INSERT INTO LOGS.LOAD_LOG (PROCESS_NAME, START_TIME, END_TIME, STATUS, COMMENT)
-        VALUES ('fill_account_turnover_f', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'FAILURE', SQLERRM);
+        VALUES ('dm.fill_account_turnover_f', NOW(), NOW(), 'FAILED', 'Error: ' || SQLERRM);
         RAISE;
 END;
-$$;
+$$ LANGUAGE PLPGSQL;

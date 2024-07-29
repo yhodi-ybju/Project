@@ -1,20 +1,13 @@
-DO $$
-    DECLARE
-        start_date DATE := '2018-01-01';
-        end_date DATE := '2018-01-31';
-    BEGIN
-        INSERT INTO DM.DM_ACCOUNT_BALANCE_F (on_date, account_rk, balance_out, balance_out_rub)
-        SELECT
-            '2017-12-31' AS on_date,
-            account_rk,
-            balance_out,
-            balance_out * COALESCE((SELECT reduced_cource FROM DS.MD_EXCHANGE_RATE_D WHERE data_actual_date = '2017-12-31'), 1) AS balance_out_rub
-        FROM
-            DS.FT_BALANCE_F;
+CREATE OR REPLACE PROCEDURE DM.RUN_SCRIPT(DATE_START DATE, DATE_END DATE)
+AS $$
+DECLARE
+    I_ONDATE DATE;
+BEGIN
+    FOR I_ONDATE IN (SELECT * FROM GENERATE_SERIES(DATE_START, DATE_END, '1 DAY') S(I_ONDATE)) LOOP
+            CALL DM.FILL_ACCOUNT_BALANCE_F(I_ONDATE);
+            CALL DM.FILL_ACCOUNT_TURNOVER_F(I_ONDATE);
+        END LOOP;
+END;
+$$ LANGUAGE PLPGSQL;
 
-        WHILE start_date <= end_date LOOP
-                CALL ds.fill_account_turnover_f(start_date);
-                CALL ds.fill_account_balance_f(start_date);
-                start_date := start_date + INTERVAL '1 day';
-            END LOOP;
-    END $$;
+CALL DM.RUN_SCRIPT('2018-01-01', '2018-01-31');
