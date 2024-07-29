@@ -31,7 +31,6 @@ public class CsvService {
     public void exportDataToCsv(String fileName) {
         String outputPath = Paths.get(path, fileName).toString();
         String query = "SELECT * FROM dm.dm_f101_round_f";
-
         try (CSVWriter writer = new CSVWriter(new FileWriter(outputPath))) {
             jdbcTemplate.query(query, (ResultSet rs) -> {
                 try {
