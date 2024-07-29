@@ -11,7 +11,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 
 @org.springframework.stereotype.Service
-public class Service {
+public class DataLoadService {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
